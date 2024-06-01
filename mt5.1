@@ -1,0 +1,151 @@
+input int NumberOfCandles = 7;    // Number of candles to consider for high/low calculation
+input int PipDistance = 80;       // Distance in pips from high/low to place stop orders
+input int StopLossPips = 700;     // Stop loss in pips
+input int TakeProfitPips = 200;   // Take profit in pips
+input double LotSize = 0.01;      // Lot size for orders
+input int MagicNumber = 123456;   // Magic number to identify orders
+
+void OnTick()
+{
+    datetime currentTime = TimeCurrent();  // Get current time
+    MqlDateTime timeStruct;
+    TimeToStruct(currentTime, timeStruct); // Convert current time to structure
+
+    // At 6:00 AM, calculate high/low and place orders
+    if (timeStruct.hour == 6 && timeStruct.min == 0)
+    {
+        double highestHigh = -DBL_MAX;
+        double lowestLow = DBL_MAX;
+        
+        // Calculate the highest high and lowest low of the last NumberOfCandles candles
+        for (int i = 1; i <= NumberOfCandles; i++)
+        {
+            double high = iHigh(NULL, 0, i);
+            double low = iLow(NULL, 0, i);
+            
+            if (high > highestHigh)
+            {
+                highestHigh = high;
+            }
+            
+            if (low < lowestLow)
+            {
+                lowestLow = low;
+            }
+        }
+        
+        // Calculate buy stop order parameters
+        double buyEntryPrice = highestHigh + PipDistance * _Point;
+        double buyStopLoss = buyEntryPrice - StopLossPips * _Point;
+        double buyTakeProfit = buyEntryPrice + TakeProfitPips * _Point;
+        
+        // Place buy stop order
+        PlaceOrder(ORDER_TYPE_BUY_STOP, buyEntryPrice, buyStopLoss, buyTakeProfit, "BuyStopOrder");
+        
+        // Calculate sell stop order parameters
+        double sellEntryPrice = lowestLow - PipDistance * _Point;
+        double sellStopLoss = sellEntryPrice + StopLossPips * _Point;
+        double sellTakeProfit = sellEntryPrice - TakeProfitPips * _Point;
+        
+        // Place sell stop order
+        PlaceOrder(ORDER_TYPE_SELL_STOP, sellEntryPrice, sellStopLoss, sellTakeProfit, "SellStopOrder");
+    }
+    
+    // At 5:00 AM, close all positions and delete pending orders
+    if (timeStruct.hour == 5 && timeStruct.min == 0 && timeStruct.sec < 1)
+    {
+        CloseAllPositionsAndDeleteOrders();
+    }
+}
+
+// Function to place an order
+void PlaceOrder(int orderType, double entryPrice, double stopLoss, double takeProfit, string comment)
+{
+    MqlTradeRequest request;
+    MqlTradeResult result;
+    
+    request.action = TRADE_ACTION_PENDING;
+    request.symbol = Symbol();
+    request.volume = LotSize;
+    request.price = entryPrice;
+    request.sl = stopLoss;
+    request.tp = takeProfit;
+    request.type = orderType;
+    request.deviation = 10;
+    request.magic = MagicNumber;
+    request.comment = comment;
+    
+    if (OrderSend(request, result))
+    {
+        Print(comment, " placed successfully at price ", entryPrice);
+        Print("Stop loss: ", stopLoss, ", Take profit: ", takeProfit, ", Lot size: ", LotSize);
+    }
+    else
+    {
+        Print("Error placing ", comment, ": ", result.retcode);
+    }
+}
+
+// Function to close all positions and delete all pending orders
+void CloseAllPositionsAndDeleteOrders()
+{
+    // Close all positions
+    for (int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if (ticket > 0 && PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == Symbol())
+        {
+            MqlTradeRequest closeRequest;
+            MqlTradeResult closeResult;
+            
+            closeRequest.action = TRADE_ACTION_DEAL;
+            closeRequest.symbol = Symbol();
+            closeRequest.volume = PositionGetDouble(POSITION_VOLUME);
+            closeRequest.type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+            closeRequest.price = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? SymbolInfoDouble(Symbol(), SYMBOL_BID) : SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+            closeRequest.deviation = 10;
+            closeRequest.magic = MagicNumber;
+            
+            if (OrderSend(closeRequest, closeResult))
+            {
+                Print("Position closed successfully: ", ticket);
+            }
+            else
+            {
+                Print("Error closing position: ", closeResult.retcode);
+            }
+        }
+    }
+    
+    // Delete all pending orders
+    for (int i = OrdersTotal() - 1; i >= 0; i--)
+    {
+        ulong ticket = OrderGetTicket(i);
+        if (ticket > 0 && OrderGetInteger(ORDER_MAGIC) == MagicNumber && OrderGetString(ORDER_SYMBOL) == Symbol())
+        {
+            if (OrderGetInteger(ORDER_TYPE) == ORDER_TYPE_BUY_STOP || OrderGetInteger(ORDER_TYPE) == ORDER_TYPE_SELL_STOP)
+            {
+                MqlTradeRequest deleteRequest;
+                MqlTradeResult deleteResult;
+                
+                deleteRequest.action = TRADE_ACTION_REMOVE;
+                deleteRequest.order = ticket;
+                
+                if (OrderSend(deleteRequest, deleteResult))
+                {
+                    Print("Pending order deleted successfully: ", ticket);
+                }
+                else
+                {
+                    Print("Error deleting pending order: ", deleteResult.retcode);
+                }
+            }
+        }
+    }
+}
+
+// Function to handle EA deinitialization
+void OnDeinit(const int reason)
+{
+    CloseAllPositionsAndDeleteOrders();
+}
