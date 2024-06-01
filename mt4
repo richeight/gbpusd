@@ -1,0 +1,136 @@
+extern int NumberOfCandles = 7;
+extern int PipDistance = 8;
+extern int StopLossPips = 10;
+extern int TakeProfitPips = 10;
+extern double LotSize = 0.01;
+
+void OnTick()
+{
+    if (TimeHour(TimeCurrent()) == 6 && TimeMinute(TimeCurrent()) == 0)
+    {
+        // Calculate highest high and lowest low of the last 7 candles
+        double highestHigh = 0;
+        double lowestLow = 0;
+        
+        for (int i = 1; i <= NumberOfCandles; i++)
+        {
+            double high = High[i];
+            double low = Low[i];
+            
+            if (high > highestHigh)
+            {
+                highestHigh = high;
+            }
+            
+            if (low < lowestLow || lowestLow == 0)
+            {
+                lowestLow = low;
+            }
+        }
+        
+        // Open Buy Stop order
+        double buyEntryPrice = highestHigh + PipDistance * Point;
+        double buyStopLoss = buyEntryPrice - StopLossPips * Point;
+        double buyTakeProfit = buyEntryPrice + TakeProfitPips * Point;
+        int buyTicket = OrderSend(Symbol(), OP_BUYSTOP, LotSize, buyEntryPrice, 10, buyStopLoss, buyTakeProfit, "BuyStopOrder", 0, 0, Green);
+        
+        // Open Sell Stop order
+        double sellEntryPrice = lowestLow - PipDistance * Point;
+        double sellStopLoss = sellEntryPrice + StopLossPips * Point;
+        double sellTakeProfit = sellEntryPrice - TakeProfitPips * Point;
+        int sellTicket = OrderSend(Symbol(), OP_SELLSTOP, LotSize, sellEntryPrice, 10, sellStopLoss, sellTakeProfit, "SellStopOrder", 0, 0, Red);
+        
+        if (buyTicket > 0 && sellTicket > 0)
+        {
+            Print("Buy stop order placed successfully at price ", buyEntryPrice);
+            Print("Stop loss: ", buyStopLoss);
+            Print("Take profit: ", buyTakeProfit);
+            Print("Lot size: ", LotSize);
+            
+            Print("Sell stop order placed successfully at price ", sellEntryPrice);
+            Print("Stop loss: ", sellStopLoss);
+            Print("Take profit: ", sellTakeProfit);
+            Print("Lot size: ", LotSize);
+        }
+        else
+        {
+            Print("Error placing orders: ", GetLastError());
+        }
+    }
+    
+    if (TimeHour(TimeCurrent()) == 5 && TimeMinute(TimeCurrent()) == 0 && TimeSeconds(TimeCurrent()) < 1)
+    {
+        // Close all positions and delete pending orders
+        
+        for (int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+            if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES) || OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+            {
+                if (OrderSymbol() == Symbol() && (OrderType() == OP_BUY || OrderType() == OP_SELL))
+                {
+                    bool isCloseOrder = OrderClose(OrderTicket(), OrderLots(), Bid, 10, Red);
+                    
+                    if (isCloseOrder)
+                    {
+                        Print("Position closed successfully: ", OrderTicket());
+                    }
+                    else
+                    {
+                        Print("Error closing position: ", GetLastError());
+                    }
+                }
+                else if (OrderSymbol() == Symbol() && (OrderType() == OP_BUYSTOP || OrderType() == OP_SELLSTOP))
+                {
+                    bool isDeleteOrder = OrderDelete(OrderTicket());
+                    
+                    if (isDeleteOrder)
+                    {
+                        Print("Pending order deleted successfully: ", OrderTicket());
+                    }
+                    else
+                    {
+                        Print("Error deleting pending order: ", GetLastError());
+                    }
+                }
+            }
+        }
+    }
+}
+
+void OnDeinit(const int reason)
+{
+    // Close all positions and delete pending orders when the expert advisor is removed or reloaded
+    
+    for (int i = OrdersTotal() - 1; i >= 0; i--)
+    {
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES) || OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
+        {
+            if (OrderSymbol() == Symbol() && (OrderType() == OP_BUY || OrderType() == OP_SELL))
+            {
+                bool isCloseOrder = OrderClose(OrderTicket(), OrderLots(), Bid, 10, Red);
+                
+                if (isCloseOrder)
+                {
+                    Print("Position closed successfully: ", OrderTicket());
+                }
+                else
+                {
+                    Print("Error closing position: ", GetLastError());
+                }
+            }
+            else if (OrderSymbol() == Symbol() && (OrderType() == OP_BUYSTOP || OrderType() == OP_SELLSTOP))
+            {
+                bool isDeleteOrder = OrderDelete(OrderTicket());
+                
+                if (isDeleteOrder)
+                {
+                    Print("Pending order deleted successfully: ", OrderTicket());
+                }
+                else
+                {
+                    Print("Error deleting pending order: ", GetLastError());
+                }
+            }
+        }
+    }
+}
